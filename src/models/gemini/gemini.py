@@ -114,6 +114,7 @@ def train():
     loss = contrastive_loss(labels, dis)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
+#TODO 
     list_train_label, list_train_adj_matrix_1, list_train_adj_matrix_2, list_train_feature_map_1, list_train_feature_map_2, \
         list_train_num1, list_train_num2, list_train_max = read_and_decode(TRAIN_TFRECORD)
     
