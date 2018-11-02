@@ -1,2 +1,4 @@
 *.tfrecord
 *.pyc
+*.so
+*.a
