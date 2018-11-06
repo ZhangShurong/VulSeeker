@@ -2,6 +2,9 @@
 import logging
 import tensorflow as tf
 import os
+import time
+import numpy as np
+
 # Parametersembedding_size
 num_steps = 500
 display_step = 100
@@ -11,6 +14,13 @@ batch_size = 10
 dimension = 7
 embedding_size = 54
 learning_rate = 0.0001
+
+model_conf = {}
+model_conf['train_tfrecord'] = ''
+model_conf['test_tfrecord'] = ''
+model_conf['valid_tfrecord'] = ''
+model_conf['log_dir'] = ''
+model_conf['model_dir'] = ''
 
 def load_data():
     pass
@@ -94,6 +104,61 @@ def structure2vec_net(adj_matrix, x, v_num):
             B_mu_5 = tf.concat([B_mu_5, tf.matmul(tf.reshape(tf.reduce_sum(mu_5, 0), (1, embedding_size)), w_2)],0)
         return B_mu_5
 
+def get_batch(label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num):
+    y = np.reshape(label, [batch_size, 1])
+    v_num_1 = []
+    v_num_2 = []
+    for i in range(batch_size):
+        v_num_1.append([int(num1[i])])
+        v_num_2.append([int(num2[i])])
+    graph_1 = []
+    graph_2 = []
+    for i in range(batch_size):
+        graph_arr = np.array(graph_str1[i].split(','))
+        graph_adj = np.reshape(graph_arr, (int(num1[i]), int(num1[i])))
+        graph_ori1 = graph_adj.astype(np.float32)
+        graph_ori1.resize(int(max_num[i]), int(max_num[i]), refcheck=False)
+        graph_1.append(graph_ori1.tolist())
+
+        graph_arr = np.array(graph_str2[i].split(','))
+        graph_adj = np.reshape(graph_arr, (int(num2[i]), int(num2[i])))
+        graph_ori2 = graph_adj.astype(np.float32)
+        graph_ori2.resize(int(max_num[i]), int(max_num[i]), refcheck=False)
+        graph_2.append(graph_ori2.tolist())
+    
+    feature_1 = []
+    feature_2 = []
+    for i in range(batch_size):
+        feature_arr = np.array(feature_str1[i].split(','))
+        feature_ori = feature_arr.astype(np.float32)
+        feature_vec1 = np.resize(feature_ori,(np.max(v_num_1), dimension))
+        feature_1.append(feature_vec1)
+
+        feature_arr = np.array(feature_str2[i].split(','))
+        feature_ori= feature_arr.astype(np.float32)
+        feature_vec2 = np.resize(feature_ori,(np.max(v_num_2), dimension))
+        feature_2.append(feature_vec2)
+
+    return y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2
+    
+def compute_accuracy(prediction, labels):
+    accu = 0.0
+    threshold = 0.5
+    for i in xrange(len(prediction)):
+        if labels[i][0] == 1:
+            if prediction[i][0] > threshold:
+                accu += 1.0
+        else:
+            if prediction[i][0] < threshold:
+                accu += 1.0
+    acc = accu / len(prediction)
+    return acc
+def calculate_auc(labels, predicts):
+    fpr, tpr, thresholds = roc_curve(labels, predicts, pos_label=1)
+    AUC = auc(fpr, tpr)
+    print "auc : ",AUC
+    return AUC
+
 def train():
     labels = tf.placeholder(tf.float32, shape=([batch_size, 1]), name= 'label')
     dropout_f = tf.placeholder(tf.float32)
@@ -114,22 +179,145 @@ def train():
     loss = contrastive_loss(labels, dis)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
-#TODO
     list_train_label, list_train_adj_matrix_1, list_train_adj_matrix_2, list_train_feature_map_1, list_train_feature_map_2, \
-        list_train_num1, list_train_num2, list_train_max = read_and_decode(TRAIN_TFRECORD)
+        list_train_num1, list_train_num2, list_train_max = read_and_decode(model_conf['train_tfrecord'])
     
     batch_train_label, batch_train_adj_matrix_1, batch_train_adj_matrix_2, batch_train_feature_map_1, \
         batch_train_feature_map_2, batch_train_num1, batch_train_num2, batch_train_max  \
         = tf.train.batch([list_train_label, list_train_adj_matrix_1, list_train_adj_matrix_2, list_train_feature_map_1,
                       list_train_feature_map_2, list_train_num1, list_train_num2, list_train_max],
                       batch_size=batch_size, capacity=100)
+    
+    list_valid_label, list_valid_adj_matrix_1, list_valid_adj_matrix_2, list_valid_feature_map_1, list_valid_feature_map_2, \
+        list_valid_num1, list_valid_num2, list_valid_max = read_and_decode(model_conf['valid_tfrecord'])
 
+    batch_valid_label, batch_valid_adj_matrix_1, batch_valid_adj_matrix_2, batch_valid_feature_map_1, \
+        batch_valid_feature_map_2, batch_valid_num1, batch_valid_num2, batch_valid_max  \
+        = tf.train.batch([list_valid_label, list_valid_adj_matrix_1, list_valid_adj_matrix_2, list_valid_feature_map_1,
+        list_valid_feature_map_2, list_valid_num1, list_valid_num2, list_valid_max],
+        batch_size=batch_size, capacity=100)
+
+    list_test_label, list_test_adj_matrix_1, list_test_adj_matrix_2, list_test_feature_map_1, list_test_feature_map_2, \
+        list_test_num1, list_test_num2, list_test_max = read_and_decode(model_conf['test_tfrecord'])
+    
+    batch_test_label, batch_test_adj_matrix_1, batch_test_adj_matrix_2, batch_test_feature_map_1, \
+        batch_test_feature_map_2, batch_test_num1, batch_test_num2, batch_test_max  \
+        = tf.train.batch([list_test_label, list_test_adj_matrix_1, list_test_adj_matrix_2, list_test_feature_map_1,
+        list_test_feature_map_2, list_test_num1, list_test_num2, list_test_max],
+        batch_size=batch_size, capacity=100)
+    
+    init_opt = tf.global_variables_initializer()
+    saver = tf.train.Saver()
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
+    tf_config = tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)
+    with tf.Session(config=tf_config) as sess:
+        writer = tf.summary.FileWriter(model_conf['log_dir'], sess.graph)
+        sess.run(init_opt)
+    coord = tf.train.Coordinator()
+    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    iter=0
+    while iter < 100:
+        iter += 1
+        avg_loss = 0.
+        avg_acc = 0.
+        total_batch = int(50000 / batch_size)
+        start_time = time.time()
+        for i in range(total_batch):
+            train_label, train_adj_matrix_1, train_adj_matrix_2, train_feature_map_1, train_feature_map_2, \
+                train_num1, train_num2, train_max \
+                = sess.run([batch_train_label, batch_train_adj_matrix_1, batch_train_adj_matrix_2,
+                            batch_train_feature_map_1, batch_train_feature_map_2, batch_train_num1,
+                            batch_train_num2, batch_train_max])
+            y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2 \
+                = get_batch(train_label, train_adj_matrix_1, train_adj_matrix_2, train_feature_map_1,
+                            train_feature_map_2, train_num1, train_num2,  train_max)
+            _, loss_value, predict = sess.run([optimizer, loss, dis], feed_dict = {
+                graph_left: graph_1, feature_left: feature_1,v_num_left: v_num_1, graph_right: graph_2,
+                feature_right: feature_2, v_num_right: v_num_2,labels: y, dropout_f: 0.9})
+            tr_acc = compute_accuracy(predict, y)
+            
+            print '     %d    tr_acc %0.2f'%(i, tr_acc)
+            avg_loss += loss_value
+            avg_acc += tr_acc * 100
+        duration = time.time() - start_time
+
+        if iter% 50000 == 0:
+            # validing model
+            avg_loss = 0.
+            avg_acc = 0.
+            valid_start_time = time.time()
+            valid_num = 5000
+            for m in range(int(valid_num / batch_size)):
+                valid_label, valid_adj_matrix_1, valid_adj_matrix_2, valid_feature_map_1, valid_feature_map_2,  \
+                valid_num1, valid_num2, valid_max \
+                    = sess.run([batch_valid_label, batch_valid_adj_matrix_1, batch_valid_adj_matrix_2,
+                                batch_valid_feature_map_1, batch_valid_feature_map_2, batch_valid_num1,
+                                batch_valid_num2, batch_valid_max])
+                y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2 \
+                    = get_batch(valid_label, valid_adj_matrix_1, valid_adj_matrix_2, valid_feature_map_1,
+                                valid_feature_map_2,valid_num1, valid_num2,  valid_max)
+                predict = dis.eval(feed_dict={
+                    graph_left: graph_1, feature_left: feature_1, v_num_left: v_num_1, graph_right: graph_2,
+                    feature_right: feature_2, v_num_right: v_num_2, labels: y, dropout_f: 0.9})
+                tr_acc = compute_accuracy(predict, y)
+                avg_loss += loss.eval(feed_dict={labels: y, dis: predict})
+                avg_acc += tr_acc * 100
+                print '     tr_acc %0.2f'%(tr_acc)
+
+            duration = time.time() - valid_start_time
+            print 'valid set, %d,  time, %f, loss, %0.5f, acc, %0.2f' % (
+                iter, duration, avg_loss / (int(valid_num / batch_size)), avg_acc / (int(valid_num / B)))
+            saver.save(sess, model_conf['model_dir'] + os.sep + "gemini-model_"+str(iter)+".ckpt")
+
+            total_labels = []
+            total_predicts = []
+            avg_loss = 0.
+            avg_acc = 0.
+            test_num = 5000
+            test_total_batch = int(test_num / batch_size)
+            start_time = time.time()
+            # Loop over all batches
+            # get batch params label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num
+            for m in range(test_total_batch):
+                test_label, test_adj_matrix_1, test_adj_matrix_2, \
+                test_feature_map_1, test_feature_map_2, test_num1, test_num2, test_max = sess.run(
+                    [batch_test_label, batch_test_adj_matrix_1, batch_test_adj_matrix_2, batch_test_feature_map_1,
+                     batch_test_feature_map_2, batch_test_num1, batch_test_num2, batch_test_max])
+                y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2 \
+                    = get_batch(test_label, test_adj_matrix_1, test_adj_matrix_2,
+                                test_feature_map_1, test_feature_map_2, test_num1, test_num2, test_max)
+                predict = dis.eval(
+                    feed_dict={graph_left: graph_1, feature_left: feature_1, v_num_left: v_num_1, graph_right: graph_2,
+                               feature_right: feature_2, v_num_right: v_num_2, labels: y, dropout_f: 1.0})
+                tr_acc = compute_accuracy(predict, y)
+                avg_loss += loss.eval(feed_dict={labels: y, dis: predict})
+                avg_acc += tr_acc * 100
+                total_labels.append(y)
+                total_predicts.append(predict)
+                print '     %d    tr_acc %0.2f' % (m, tr_acc)
+            duration = time.time() - start_time
+            total_labels = np.reshape(total_labels, (-1))
+            total_predicts = np.reshape(total_predicts, (-1))
+            print "label : ", total_labels
+            print "predict: ", total_predicts
+            print calculate_auc(total_labels, total_predicts)
+            print 'test set, time, %f, loss, %0.5f, acc, %0.2f' % (duration, avg_loss / test_total_batch, avg_acc / test_total_batch)
+
+# 保存模型
+    save_path = saver.save(sess, model_conf['model_dir'] + os.sep + "gemini-model_final.ckpt")
+    print save_path
+
+    coord.request_stop()
+    coord.join(threads)
 
 def train_model(dataset_path, model_path, log_path):
-    logging.info("Reading dataset.")
-    train_tfrecord = dataset_path + os.sep + 'train.tfrecord'
-    test_tfrecord = dataset_path + os.sep + 'test.tfrecord'
-    valid_tfrecord = dataset_path + os.sep + 'valid.tfrecord'
+    logging.info("Reading dataset... ...")
+    model_conf['train_tfrecord'] = dataset_path + os.sep + 'train.tfrecord'
+    model_conf['test_tfrecord'] = dataset_path + os.sep + 'test.tfrecord'
+    model_conf['valid_tfrecord'] = dataset_path + os.sep + 'valid.tfrecord'
+    model_conf['model_dir'] = model_path
+    model_conf['log_dir'] = log_path
     load_data()
     train()
 
