@@ -1,7 +1,7 @@
 # coding=utf-8
 import logging
 import tensorflow as tf
-
+import os
 # Parametersembedding_size
 num_steps = 500
 display_step = 100
@@ -114,7 +114,7 @@ def train():
     loss = contrastive_loss(labels, dis)
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
-#TODO 
+#TODO
     list_train_label, list_train_adj_matrix_1, list_train_adj_matrix_2, list_train_feature_map_1, list_train_feature_map_2, \
         list_train_num1, list_train_num2, list_train_max = read_and_decode(TRAIN_TFRECORD)
     
@@ -123,11 +123,13 @@ def train():
         = tf.train.batch([list_train_label, list_train_adj_matrix_1, list_train_adj_matrix_2, list_train_feature_map_1,
                       list_train_feature_map_2, list_train_num1, list_train_num2, list_train_max],
                       batch_size=batch_size, capacity=100)
-    
 
 
 def train_model(dataset_path, model_path, log_path):
     logging.info("Reading dataset.")
+    train_tfrecord = dataset_path + os.sep + 'train.tfrecord'
+    test_tfrecord = dataset_path + os.sep + 'test.tfrecord'
+    valid_tfrecord = dataset_path + os.sep + 'valid.tfrecord'
     load_data()
     train()
 
