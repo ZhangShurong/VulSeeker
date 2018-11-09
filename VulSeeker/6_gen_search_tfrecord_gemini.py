@@ -11,6 +11,7 @@ import tensorflow as tf
 import numpy as np
 import networkx as nx
 import itertools
+import re
 
 # @numba.jit
 def construct_learning_dataset(uid_pair_list):
@@ -124,14 +125,19 @@ def generate_features_pair(uid_pair_list):
     return feas_1, feas_2, np.max(node_length),num1_re,num2_re
 
 
-if not os.path.exists(config.SEARCH_DATASET_DIR):
-    os.mkdir(config.SEARCH_DATASET_DIR)
+if not os.path.exists(config.SEARCH_GEMINI_TFRECORD_DIR):
+    os.mkdir(config.SEARCH_GEMINI_TFRECORD_DIR)
 
-cve_list = []
-cve_filters = glob.glob(config.CVE_FEATURE_DIR + "\\*")
+
+cve_list = {}
+cve_filters = glob.glob(config.CVE_FEATURE_DIR + os.sep + "*")
 for cur_cve_dir in cve_filters:
     if os.path.isdir(cur_cve_dir):
-        cve_list.append(cur_cve_dir.split(os.sep)[-1])
+        cve_list[cur_cve_dir.split(os.sep)[-1]] = []
+        cve_program_filters = glob.glob(cur_cve_dir + os.sep + "*")
+        for cur_cve_program in cve_program_filters:
+            if os.path.isdir(cur_cve_program):
+                cve_list[cur_cve_dir.split(os.sep)[-1]].append(cur_cve_program.split(os.sep)[-1])
 
 search_program_function_list = {}
 for program in config.STEP6_SEARCH_PROGRAM_ARR:
@@ -144,36 +150,86 @@ for program in config.STEP6_SEARCH_PROGRAM_ARR:
             search_list = i + os.sep + "functions_list.csv"
             with open(search_list, "r") as fp:
                 for line in csv.reader(fp):
-                    print line
+                    # print line
                     if line[0] == "":
                         continue
-                    search_program_function_list[program][i.split(os.sep)[-1]].append(line[0])
-                    print line[0]
+                    search_program_function_list[program][i.split(os.sep)[-1]].append([line[0],line[6]])
+                    # print line[0]
 
+# 清空文件夹
+# shutil.rmtree(config.SEARCH_GEMINI_TFRECORD_DIR)
+# os.mkdir(config.SEARCH_GEMINI_TFRECORD_DIR)
 # 一个CVE 一个 tfrecord， 以CVE命名
-for cur_cve in cve_list:
-    search_pair_list = []
-    for program,version  in search_program_function_list.items():
-        for functions in version.values():
-            print functions
-            search_pair_list.append(config.CVE_FEATURE_DIR+os.sep+cur_cve,program+os.sep+version+os.sep+functions+",")
-    search_cfg_1, search_cfg_2, search_fea_1, search_fea_2, search_num1, search_num2, search_max \
-        = construct_learning_dataset(search_pair_list)
-    node_list = np.linspace(search_max,search_max, len(search_pair_list),dtype=int)
-    writer = tf.python_io.TFRecordWriter(config.SEARCH_GEMINI_TFRECORD + os.sep + cur_cve + ".tfrecord")
-    for item1,item2,item3,item4,item5,item6, item7 in itertools.izip(
-            search_cfg_1, search_cfg_2, search_fea_1, search_fea_2,
-            search_num1, search_num2, node_list):
-        example = tf.train.Example(
-            features = tf.train.Features(
-                feature = {
-                    'cfg_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item1])),
-                    'cfg_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item2])),
-                    'fea_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item3])),
-                    'fea_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item4])),
-                    'num1':tf.train.Feature(int64_list = tf.train.Int64List(value=[item5])),
-                    'num2':tf.train.Feature(int64_list = tf.train.Int64List(value=[item6])),
-                    'max': tf.train.Feature(int64_list=tf.train.Int64List(value=[item7]))}))
-        serialized = example.SerializeToString()
-        writer.write(serialized)
-    writer.close()
+for cur_cve in cve_list.keys():
+    if not os.path.exists(config.SEARCH_GEMINI_TFRECORD_DIR + os.sep + cur_cve):
+        os.mkdir(config.SEARCH_GEMINI_TFRECORD_DIR + os.sep + cur_cve)
+    for program, version_dict in search_program_function_list.items():
+        print "program", program
+        for version in version_dict.keys():
+            print " version", version
+            search_pair_list = []
+            label_list = []
+            for functions in version_dict.get(version):
+                function_name = functions[0]
+                bin_path_arr = re.split(r"[/,//,\,\\]",functions[1])
+                bin_path = bin_path_arr[-3] + os.sep + bin_path_arr[-2] + os.sep + bin_path_arr[-1]
+                for cur_cve_program in cve_list.get(cur_cve):
+                    # print functions
+                    search_pair_list.append(
+                        [cur_cve+os.sep+cur_cve_program+os.sep+config.STEP6_CVE_FUN_LIST.get(cur_cve),
+                         program+os.sep+version+os.sep+function_name])
+                    label_list.append(function_name+"###"+bin_path)
+            search_cfg_1, search_cfg_2, search_fea_1, search_fea_2, search_num1, search_num2, search_max \
+                = construct_learning_dataset(search_pair_list)
+            str_pair = []
+            for pair in search_pair_list:
+                str_pair.append(pair[0] + ',' + pair[1])
+
+            node_list = np.linspace(search_max,search_max, len(search_pair_list),dtype=int)
+            cur_path = config.SEARCH_GEMINI_TFRECORD_DIR + os.sep + cur_cve
+            tf_file_name = version+"__NUM__"+str(len(search_pair_list))+ "#" +  str(len(cve_list.get(cur_cve)))
+            writer = tf.python_io.TFRecordWriter(cur_path + os.sep + tf_file_name +".tfrecord")
+            for item1,item2,item3,item4,item5,item6, item7,item8, item9 in itertools.izip(
+                    search_cfg_1, search_cfg_2, search_fea_1, search_fea_2,
+                    search_num1, search_num2, node_list, label_list, str_pair):
+                example = tf.train.Example(
+                    features = tf.train.Features(
+                        feature = {
+                            'cfg_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item1])),
+                            'cfg_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item2])),
+                            'fea_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item3])),
+                            'fea_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item4])),
+                            'num1': tf.train.Feature(int64_list = tf.train.Int64List(value=[item5])),
+                            'num2': tf.train.Feature(int64_list = tf.train.Int64List(value=[item6])),
+                            'max': tf.train.Feature(int64_list=tf.train.Int64List(value=[item7])),
+                            'pair': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item9])),
+                        }))
+                serialized = example.SerializeToString()
+                writer.write(serialized)
+            writer.close()
+
+    # search_pair_list = []
+    # for program, version in search_program_function_list.items():
+    #     for functions in version.values():
+    #         print functions
+    #         search_pair_list.append(config.CVE_FEATURE_DIR+os.sep+cur_cve, program+os.sep+version+os.sep+functions+",")
+    # search_cfg_1, search_cfg_2, search_fea_1, search_fea_2, search_num1, search_num2, search_max \
+    #     = construct_learning_dataset(search_pair_list)
+    # node_list = np.linspace(search_max,search_max, len(search_pair_list),dtype=int)
+    # writer = tf.python_io.TFRecordWriter(config.SEARCH_GEMINI_TFRECORD_DIR + os.sep + cur_cve + ".tfrecord")
+    # for item1,item2,item3,item4,item5,item6, item7 in itertools.izip(
+    #         search_cfg_1, search_cfg_2, search_fea_1, search_fea_2,
+    #         search_num1, search_num2, node_list):
+    #     example = tf.train.Example(
+    #         features = tf.train.Features(
+    #             feature = {
+    #                 'cfg_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item1])),
+    #                 'cfg_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item2])),
+    #                 'fea_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item3])),
+    #                 'fea_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item4])),
+    #                 'num1':tf.train.Feature(int64_list = tf.train.Int64List(value=[item5])),
+    #                 'num2':tf.train.Feature(int64_list = tf.train.Int64List(value=[item6])),
+    #                 'max': tf.train.Feature(int64_list=tf.train.Int64List(value=[item7]))}))
+    #     serialized = example.SerializeToString()
+    #     writer.write(serialized)
+    # writer.close()

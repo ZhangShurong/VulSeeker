@@ -28,15 +28,16 @@ train_num = config.TRAIN_DATASET_NUM
 valid_num = int(train_num/10)
 test_num = int(train_num/10)
 
-PREFIX = "_"+str(config.TRAIN_DATASET_NUM)+"_["+'_'.join(config.STEP3_PORGRAM_ARR)+"]"
-TRAIN_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "train_"+PREFIX+".tfrecord"
-TEST_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "test_"+PREFIX+".tfrecord"
-VALID_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "valid_"+PREFIX+".tfrecord"
+# PREFIX = "_"+str(config.TRAIN_DATASET_NUM)+"_["+'_'.join(config.STEP3_PORGRAM_ARR)+"]"
+# TRAIN_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "train_"+PREFIX+".tfrecord"
+# TEST_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "test_"+PREFIX+".tfrecord"
+# VALID_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "valid_"+PREFIX+".tfrecord"
 
-# PREFIX = "_coreutils_1000"
-# TRAIN_TFRECORD="TFrecord/train_vulSeeker_data"+PREFIX+".tfrecord"
-# TEST_TFRECORD="TFrecord/test_vulSeeker_data"+PREFIX+".tfrecord"
-# VALID_TFRECORD="TFrecord/valid_vulSeeker_data"+PREFIX+".tfrecord"
+PREFIX = "_100000"
+
+TRAIN_TFRECORD="3_TFRecord/Gemini/train_gemini_data"+PREFIX+".tfrecord"
+TEST_TFRECORD="3_TFRecord/Gemini/test_gemini_data"+PREFIX+".tfrecord"
+VALID_TFRECORD="3_TFRecord/Gemini/valid_gemini_data"+PREFIX+".tfrecord"
 
 # =============== convert the real data to training data ==============
 #       1.  construct_learning_dataset() combine the dataset list & real data
@@ -69,6 +70,7 @@ def structure2vec(mu_prev, adj_matrix, x, name="structure2vec"):
         S = tf.reshape(tf.matmul(tf.nn.relu(tf.matmul(L, P_2)), P_1), (-1, P))
 
         return tf.tanh(tf.add(tf.reshape(tf.matmul(tf.reshape(x, (-1, D)), W_1), (-1, P)), S))
+
 
 def structure2vec_net(adj_matrix, x, v_num):
     with tf.variable_scope("structure2vec_net") as structure2vec_net:
@@ -220,6 +222,7 @@ def get_batch( label, graph_str1, graph_str2, feature_str1, feature_str2, num1, 
 
 # Initializing the variables
 
+
 init = tf.global_variables_initializer()
 global_step = tf.Variable(0, trainable=False)
 learning_rate = tf.train.exponential_decay(lr, global_step, decay_steps, decay_rate, staircase=True)
@@ -276,9 +279,9 @@ saver = tf.train.Saver()
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8)
-config = tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)
+tf_config = tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)
 # with tf.Session(config=tf.ConfigProto(device_count={'cpu':0})) as sess:
-with tf.Session(config=config) as sess:
+with tf.Session(config=tf_config) as sess:
     writer = tf.summary.FileWriter('logs/', sess.graph)
     sess.run(init_opt)
     if config.SETP5_IF_RESTORE_GEMINI_MODEL:
@@ -306,7 +309,7 @@ with tf.Session(config=config) as sess:
                             train_feature_map_2, train_num1, train_num2,  train_max)
             _, loss_value, predict = sess.run([optimizer, loss, dis], feed_dict = {
                 graph_left: graph_1, feature_left: feature_1,v_num_left: v_num_1, graph_right: graph_2,
-                feature_right: feature_2, v_num_right: v_num_2,labels: y, dropout_f: 0.9})
+                feature_right: feature_2, v_num_right: v_num_2, labels: y, dropout_f: 0.9})
             tr_acc = compute_accuracy(predict, y)
             if is_debug:
                 print '     %d    tr_acc %0.2f'%(i, tr_acc)

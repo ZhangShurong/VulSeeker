@@ -49,6 +49,7 @@ def load_dataset():
 
     return train_pair, train_label, valid_pair, valid_label, test_pair, test_label
 
+
 def load_csv_as_pair(pair_label_file):
     """ load each csv file, which record the pairs list for learning and its label ( 1 or -1 )
         csv file : uid, uid, 1/-1 eg: 1.1.128, 1.4.789, -1
@@ -185,7 +186,7 @@ def generate_features_pair(uid_pair_list):
     num2_re = np.array(num2)
     #num1_re = num1_arr.astype(np.string_)
     #num2_re = num2_arr.astype(np.string_)
-    return feas_1, feas_2, np.max(node_length),num1_re,num2_re
+
 
 # ========================== the main function ========================
 #       1.  load_dataset()  load the train, valid, test csv file.

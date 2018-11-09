@@ -28,7 +28,8 @@ is_debug = True
 
 PREFIX = "_"+str(config.TRAIN_DATASET_NUM)+"_["+'_'.join(config.STEP3_PORGRAM_ARR)+"]"
 SEARCH_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "train_"+PREFIX+".tfrecord"
-TEST_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "test_"+PREFIX+".tfrecord"
+# TEST_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "test_"+PREFIX+".tfrecord"
+TEST_TFRECORD = './6_Search_TFRecord/VulSeeker/CVE-2015-1791/tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini__NUM__27840#48.tfrecord'
 VALID_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "valid_"+PREFIX+".tfrecord"
 
 # =============== convert the real data to training data ==============
@@ -102,7 +103,7 @@ def contrastive_loss(labels, distance):
     return loss
 
 
-def compute_accuracy(prediction, labels):
+def compute_accuracy(test_fp, prediction, name, labels):
     accu = 0.0
     threshold = 0.5
     for i in xrange(len(prediction)):
@@ -112,6 +113,10 @@ def compute_accuracy(prediction, labels):
         else:
             if prediction[i][0] < threshold:
                 accu += 1.0
+        if prediction[i][0] < 0:
+            print 'OK'
+            exit(0)
+        test_fp.write(str(prediction[i][0]) + "," + str(name[i][0]) + "\n")
     acc = accu / len(prediction)
     return acc
 
@@ -132,7 +137,6 @@ def read_and_decode(filename):
     _, serialized_example = reader.read(filename_queue)
     # get feature from serialized example
     features = tf.parse_single_example(serialized_example, features={
-        'label': tf.FixedLenFeature([], tf.int64),
         'cfg_1': tf.FixedLenFeature([], tf.string),
         'cfg_2': tf.FixedLenFeature([], tf.string),
         'dfg_1': tf.FixedLenFeature([], tf.string),
@@ -141,9 +145,11 @@ def read_and_decode(filename):
         'fea_2': tf.FixedLenFeature([], tf.string),
         'num1': tf.FixedLenFeature([], tf.int64),
         'num2': tf.FixedLenFeature([], tf.int64),
-        'max': tf.FixedLenFeature([], tf.int64)})
+        'max': tf.FixedLenFeature([], tf.int64),
+        'pair': tf.FixedLenFeature([], tf.string)
+        })
 
-    label = tf.cast(features['label'], tf.int32)
+    # label = tf.cast(features['label'], tf.int32)
 
     cfg_1 = features['cfg_1']
     cfg_2 = features['cfg_2']
@@ -173,11 +179,13 @@ def read_and_decode(filename):
 
     max_num = tf.cast(features['max'], tf.int32)
 
-    return label, cfg_1, cfg_2, dfg_1, dfg_2, fea_1, fea_2, num1, num2, max_num
+    pair_list = features['pair']#获得名字列表
+
+    return cfg_1, cfg_2, dfg_1, dfg_2, fea_1, fea_2, num1, num2, max_num, pair_list
 
 
-def get_batch( label, cfg_str1, cfg_str2, dfg_str1, dfg_str2, fea_str1, fea_str2, num1, num2, max_num):
-
+def get_batch(pair, label, cfg_str1, cfg_str2, dfg_str1, dfg_str2, fea_str1, fea_str2, num1, num2, max_num):
+    x = np.reshape(pair, [B, 1])
     y = np.reshape(label, [B, 1])
 
     v_num_1 = []
@@ -236,7 +244,7 @@ def get_batch( label, cfg_str1, cfg_str2, dfg_str1, dfg_str2, fea_str1, fea_str2
         fea_vec2 = np.resize(fea_temp2,(np.max(v_num_2)*2,D))
         fea_2.append(fea_vec2)
 
-    return y, cdfg_1, cdfg_2, fea_1, fea_2, v_num_1, v_num_2
+    return x, y, cdfg_1, cdfg_2, fea_1, fea_2, v_num_1, v_num_2
 
 # 4.construct the network
 # Initializing the variables
@@ -271,152 +279,66 @@ loss = contrastive_loss(labels, dis)
 
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
-# list_train_label, list_train_cfg_1, list_train_cfg_2, list_train_dfg_1, list_train_dfg_2, list_train_fea_1, \
-# list_train_fea_2, list_train_num1, list_train_num2, list_train_max = read_and_decode(TRAIN_TFRECORD)
-# batch_train_label, batch_train_cfg_1, batch_train_cfg_2, batch_train_dfg_1, batch_train_dfg_2, batch_train_fea_1, \
-# batch_train_fea_2, batch_train_num1, batch_train_num2, batch_train_max  \
-#     = tf.train.batch([list_train_label, list_train_cfg_1, list_train_cfg_2, list_train_dfg_1, list_train_dfg_2,
-#                       list_train_fea_1, list_train_fea_2, list_train_num1, list_train_num2, list_train_max],
-#                      batch_size=B, capacity=10)
-#
-# list_valid_label, list_valid_cfg_1, list_valid_cfg_2, list_valid_dfg_1, list_valid_dfg_2, list_valid_fea_1, \
-# list_valid_fea_2, list_valid_num1, list_valid_num2, list_valid_max = read_and_decode(VALID_TFRECORD)
-# batch_valid_label, batch_valid_cfg_1, batch_valid_cfg_2, batch_valid_dfg_1, batch_valid_dfg_2, batch_valid_fea_1, \
-# batch_valid_fea_2, batch_valid_num1, batch_valid_num2, batch_valid_max  \
-#     = tf.train.batch([list_valid_label, list_valid_cfg_1, list_valid_cfg_2, list_valid_dfg_1, list_valid_dfg_2,
-#                       list_valid_fea_1, list_valid_fea_2, list_valid_num1, list_valid_num2, list_valid_max],
-#                      batch_size=B, capacity=10)
+def search():
+    list_test_cfg_1, list_test_cfg_2, list_test_dfg_1, list_test_dfg_2, list_test_fea_1, \
+        list_test_fea_2, list_test_num1, list_test_num2, list_test_max, list_test_pair = read_and_decode(TEST_TFRECORD)
 
-list_test_label, list_test_cfg_1, list_test_cfg_2, list_test_dfg_1, list_test_dfg_2, list_test_fea_1, \
-list_test_fea_2, list_test_num1, list_test_num2, list_test_max = read_and_decode(TEST_TFRECORD)
-batch_test_label, batch_test_cfg_1, batch_test_cfg_2, batch_test_dfg_1, batch_test_dfg_2, batch_test_fea_1, \
-batch_test_fea_2, batch_test_num1, batch_test_num2, batch_test_max  \
-    = tf.train.batch([list_test_label, list_test_cfg_1, list_test_cfg_2, list_test_dfg_1, list_test_dfg_2,
-                      list_test_fea_1, list_test_fea_2, list_test_num1, list_test_num2, list_test_max],
-                     batch_size=B, capacity=10)
-''''''
-init_opt = tf.global_variables_initializer()
-saver = tf.train.Saver()
-#
+    batch_test_cfg_1, batch_test_cfg_2, batch_test_dfg_1, batch_test_dfg_2, batch_test_fea_1, \
+    batch_test_fea_2, batch_test_num1, batch_test_num2, batch_test_max, batch_test_pair  \
+        = tf.train.batch([list_test_cfg_1, list_test_cfg_2, list_test_dfg_1, list_test_dfg_2,
+                        list_test_fea_1, list_test_fea_2, list_test_num1, list_test_num2, list_test_max, list_test_pair],
+                        batch_size=B, capacity=100)
+    ''''''
+    init_opt = tf.global_variables_initializer()
+    saver = tf.train.Saver()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,2,3"
-# gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9)
-# config = tf.ConfigProto(allow_soft_placement=True, gpu_options=gpu_options)
-# with tf.Session(config=config) as sess:
-with tf.Session() as sess:
-# with tf.Session(config=tf.ConfigProto(device_count={'cpu':0})) as sess:
-    writer = tf.summary.FileWriter('logs/', sess.graph)
-    sess.run(init_opt)
-    if config.SETP5_IF_RESTORE_VULSEEKER_MODEL:
-        saver.restore(sess, config.MODEL_VULSEEKER_DIR + os.sep + config.STEP5_VULSEEKER_MODEL_TO_RESTORE)
-    coord = tf.train.Coordinator()
-    threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+    with tf.Session() as sess:
+    # with tf.Session(config=tf.ConfigProto(device_count={'cpu':0})) as sess:
+        sess.run(init_opt)
+        if config.SETP5_IF_RESTORE_VULSEEKER_MODEL:
+            saver.restore(sess, config.MODEL_VULSEEKER_DIR + os.sep + config.STEP5_VULSEEKER_MODEL_TO_RESTORE)
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-    filters = glob.glob(config.SEARCH_VULSEEKER_TFRECORD_DIR + os.sep + "*.tfrecord")
-    writer = tf.python_io.TFRecordWriter(filters)
-    for index, name in enumerate(classes):
-        class_path = cwd + name + "/"
-        for img_name in os.listdir(class_path):
-            img_path = class_path + img_name
-                img = Image.open(img_path)
-                img = img.resize((224, 224))
-            img_raw = img.tobytes()              #将图片转化为原生bytes
-            example = tf.train.Example(features=tf.train.Features(feature={
-                "label": tf.train.Feature(int64_list=tf.train.Int64List(value=[index])),
-                'img_raw': tf.train.Feature(bytes_list=tf.train.BytesList(value=[img_raw]))
-            }))
-            writer.write(example.SerializeToString())  #序列化为字符串
-    writer.close()
-
-    iter=0
-    while iter < max_iter:
-        iter += 1
+        test_num = 100000
+        total_labels = []
+        total_predicts = []
         avg_loss = 0.
         avg_acc = 0.
-        total_batch = int(train_num / B)
+        test_total_batch = int(test_num / B)
         start_time = time.time()
         # Loop over all batches
-        # get batch params label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_nu
-        for i in range(total_batch):
-            train_label, train_cfg_1, train_cfg_2, train_dfg_1, train_dfg_2, train_fea_1, train_fea_2, \
-            train_num1, train_num2, train_max \
-                = sess.run([batch_train_label, batch_train_cfg_1, batch_train_cfg_2, batch_train_dfg_1,
-                            batch_train_dfg_2, batch_train_fea_1, batch_train_fea_2, batch_train_num1,
-                            batch_train_num2, batch_train_max])
-            y, cdfg_1, cdfg_2, fea_1, fea_2, v_num_1, v_num_2 \
-                = get_batch(train_label,  train_cfg_1, train_cfg_2, train_dfg_1, train_dfg_2, train_fea_1,
-                            train_fea_2, train_num1, train_num2,  train_max)
-            _, loss_value, predict = sess.run([optimizer, loss, dis], feed_dict = {
-                cdfg_left: cdfg_1, fea_left: fea_1,v_num_left: v_num_1, cdfg_right: cdfg_2,fea_right: fea_2, v_num_right: v_num_2,labels: y, dropout_f: 0.9})
-            tr_acc = compute_accuracy(predict, y)
-            if is_debug:
-                print '     %d    tr_acc %0.2f'%(i, tr_acc)
-            avg_loss += loss_value
+        # get batch params label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num
+        test_fp = open('vulseeker.csv', "w+")
+        for m in range(test_total_batch):
+            test_cfg_1, test_cfg_2, test_dfg_1, test_dfg_2, \
+            test_fea_1, test_fea_2, test_num1, test_num2, test_max, test_pair = sess.run(
+                [batch_test_cfg_1, batch_test_cfg_2, batch_test_dfg_1, batch_test_dfg_2,
+                batch_test_fea_1, batch_test_fea_2, batch_test_num1, batch_test_num2, batch_test_max, batch_test_pair])
+            x, y, cdfg_1, cdfg_2, fea_1, fea_2, v_num_1, v_num_2 \
+                = get_batch(test_pair, np.ones(B), test_cfg_1, test_cfg_2, test_dfg_1, test_dfg_2,
+                            test_fea_1, test_fea_2, test_num1, test_num2, test_max)
+            predict = dis.eval(
+                feed_dict={cdfg_left: cdfg_1, fea_left: fea_1,v_num_left: v_num_1, cdfg_right: cdfg_2,
+            fea_right: fea_2, v_num_right: v_num_2,labels: y, dropout_f: 1.0})
+            tr_acc = compute_accuracy(test_fp, predict, x, y)
+            avg_loss += loss.eval(feed_dict={labels: y, dis: predict})
             avg_acc += tr_acc * 100
-        # duration = time.time() - start_time
-        #
-        #
-        # if iter%snapshot == 0:
-        #     # validing model
-        #     avg_loss = 0.
-        #     avg_acc = 0.
-        #     valid_start_time = time.time()
-        #     for m in range(int(valid_num / B)):
-        #         valid_label, valid_cfg_1, valid_cfg_2, valid_dfg_1, valid_dfg_2, valid_fea_1, valid_fea_2,  \
-        #         valid_num1, valid_num2, valid_max \
-        #             = sess.run([batch_valid_label, batch_valid_cfg_1, batch_valid_cfg_2, batch_valid_dfg_1,
-        #                         batch_valid_dfg_2,batch_valid_fea_1, batch_valid_fea_2, batch_valid_num1,
-        #                         batch_valid_num2, batch_valid_max])
-        #         y, cdfg_1, cdfg_2, fea_1, fea_2, v_num_1, v_num_2 \
-        #             = get_batch(valid_label, valid_cfg_1, valid_cfg_2, valid_dfg_1, valid_dfg_2, valid_fea_1,
-        #                         valid_fea_2,valid_num1, valid_num2,  valid_max)
-        #         predict = dis.eval(feed_dict={
-        #             cdfg_left: cdfg_1, fea_left: fea_1, v_num_left: v_num_1, cdfg_right: cdfg_2,
-        #             fea_right: fea_2, v_num_right: v_num_2, labels: y, dropout_f: 0.9})
-        #         tr_acc = compute_accuracy(predict, y)
-        #         avg_loss += loss.eval(feed_dict={labels: y, dis: predict})
-        #         avg_acc += tr_acc * 100
-        #         if is_debug:
-        #             print '     tr_acc %0.2f'%(tr_acc)
-        #     duration = time.time() - valid_start_time
-        #     print 'valid set, %d,  time, %f, loss, %0.5f, acc, %0.2f' % (
-        #         iter, duration, avg_loss / (int(valid_num / B)), avg_acc / (int(valid_num / B)))
-        #     saver.save(sess, config.MODEL_VULSEEKER_DIR + os.sep + "vulseeker-model"+PREFIX+"_"+str(iter)+".ckpt")
-
-            total_labels = []
-            total_predicts = []
-            avg_loss = 0.
-            avg_acc = 0.
-            test_total_batch = int(test_num / B)
-            start_time = time.time()
-            # Loop over all batches
-            # get batch params label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num
-            for m in range(test_total_batch):
-                test_label, test_cfg_1, test_cfg_2, test_dfg_1, test_dfg_2, \
-                test_fea_1, test_fea_2, test_num1, test_num2, test_max = sess.run(
-                    [batch_test_label, batch_test_cfg_1, batch_test_cfg_2, batch_test_dfg_1, batch_test_dfg_2,
-                     batch_test_fea_1,batch_test_fea_2, batch_test_num1, batch_test_num2, batch_test_max])
-                y, cdfg_1, cdfg_2, fea_1, fea_2, v_num_1, v_num_2 \
-                    = get_batch(test_label, test_cfg_1, test_cfg_2, test_dfg_1, test_dfg_2,
-                                test_fea_1, test_fea_2, test_num1, test_num2, test_max)
-                predict = dis.eval(
-                    feed_dict={cdfg_left: cdfg_1, fea_left: fea_1,v_num_left: v_num_1, cdfg_right: cdfg_2,
-                fea_right: fea_2, v_num_right: v_num_2,labels: y, dropout_f: 1.0})
-                tr_acc = compute_accuracy(predict, y)
-                avg_loss += loss.eval(feed_dict={labels: y, dis: predict})
-                avg_acc += tr_acc * 100
-                total_labels.append(y)
-                total_predicts.append(predict)
-                if is_debug:
-                    print '     %d    tr_acc %0.2f' % (m, tr_acc)
-            duration = time.time() - start_time
-            total_labels = np.reshape(total_labels, (-1))
-            total_predicts = np.reshape(total_predicts, (-1))
-            print calculate_auc(total_labels, total_predicts)
-            print 'test set, time, %f, loss, %0.5f, acc, %0.2f' % (duration, avg_loss / test_total_batch, avg_acc / test_total_batch)
-
-# 保存模型
-    saver.save(sess, config.MODEL_VULSEEKER_DIR + os.sep + "vulseeker-model"+PREFIX+"_final.ckpt")
+            total_labels.append(y)
+            total_predicts.append(predict)
+            if is_debug:
+                print '     %d    tr_acc %0.2f' % (m, tr_acc)
+        duration = time.time() - start_time
+        total_labels = np.reshape(total_labels, (-1))
+        total_predicts = np.reshape(total_predicts, (-1))
+        print calculate_auc(total_labels, total_predicts)
+        print 'test set, time, %f, loss, %0.5f, acc, %0.2f' % (duration, avg_loss / test_total_batch, avg_acc / test_total_batch)
 
     coord.request_stop()
     coord.join(threads)
+
+def main():
+    search()
+
+if __name__ == '__main__':
+    main()

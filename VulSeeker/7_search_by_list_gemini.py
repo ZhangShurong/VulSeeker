@@ -25,15 +25,15 @@ decay_steps = 10 # 衰减步长
 decay_rate = 0.1 # 衰减率
 snapshot = 2
 is_debug = True
+test_num = 10000
+# search_num = config.CVE_SEARCH_NUM
+# SEARCH_TFRECORD = config.SEARCH_TFRECORD_DIR + os.sep + "valid_"+PREFIX+".tfrecord"
 
-search_num = config.CVE_SEARCH_NUM
-SEARCH_TFRECORD = config.SEARCH_TFRECORD_DIR + os.sep + "valid_"+PREFIX+".tfrecord"
-
-
+# SEARCH_TFRECORD = './6_Search_TFRecord/Gemini/CVE-2014-3508/libTheAmazingAudioEngine__NUM__24048#48.tfrecord'
 PREFIX = "_"+str(config.TRAIN_DATASET_NUM)+"_["+'_'.join(config.STEP3_PORGRAM_ARR)+"]"
-TRAIN_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "train_"+PREFIX+".tfrecord"
-TEST_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "test_"+PREFIX+".tfrecord"
-
+# TRAIN_TFRECORD = config.TFRECORD_GEMINI_DIR + os.sep + "train_"+PREFIX+".tfrecord"
+TEST_TFRECORD = './6_Search_TFRecord/Gemini/CVE-2015-1791/tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini__NUM__27840#48.tfrecord'
+MODEL = "./4_Model/Gemini/gemini-model_100000_7.ckpt"
 # =============== convert the real data to training data ==============
 #       1.  construct_learning_dataset() combine the dataset list & real data
 #       1-1. generate_adj_matrix_pairs()    traversal list and construct all the matrixs
@@ -103,7 +103,7 @@ def calculate_auc(labels, predicts):
     print "auc : ",AUC
     return AUC
 
-def compute_accuracy(prediction, labels):
+def compute_accuracy(res_fb, prediction, name, labels):
     accu = 0.0
     threshold = 0.5
     for i in xrange(len(prediction)):
@@ -113,14 +113,15 @@ def compute_accuracy(prediction, labels):
         else:
             if prediction[i][0] < threshold:
                 accu += 1.0
+        res_fb.write(str(prediction[i][0]) + "," + str(name[i][0]) + "\n")
     acc = accu / len(prediction)
     return acc
 
 def cal_distance(model1, model2):
     a_b = tf.reduce_sum(tf.reshape(tf.reduce_prod(tf.concat([tf.reshape(model1,(1,-1)),
                                                              tf.reshape(model2,(1,-1))],0),0),(B,P)),1,keep_dims=True)
-    a_norm = tf.sqrt(tf.reduce_sum(tf.square(model1),1,keep_dims=True))
-    b_norm = tf.sqrt(tf.reduce_sum(tf.square(model2),1,keep_dims=True))
+    a_norm = tf.sqrt(tf.reduce_sum(tf.square(model1), 1, keep_dims=True))
+    b_norm = tf.sqrt(tf.reduce_sum(tf.square(model2), 1, keep_dims=True))
     distance = a_b/tf.reshape(tf.reduce_prod(tf.concat([tf.reshape(a_norm,(1,-1)),
                                                         tf.reshape(b_norm,(1,-1))],0),0),(B,1))
     return distance
@@ -133,18 +134,14 @@ def read_and_decode(filename):
     _, serialized_example = reader.read(filename_queue)
     # get feature from serialized example
     features = tf.parse_single_example(serialized_example, features={
-        'label': tf.FixedLenFeature([], tf.int64),
         'cfg_1': tf.FixedLenFeature([], tf.string),
         'cfg_2': tf.FixedLenFeature([], tf.string),
-        'dfg_1': tf.FixedLenFeature([], tf.string),
-        'dfg_2': tf.FixedLenFeature([], tf.string),
         'fea_1': tf.FixedLenFeature([], tf.string),
         'fea_2': tf.FixedLenFeature([], tf.string),
         'num1': tf.FixedLenFeature([], tf.int64),
         'num2': tf.FixedLenFeature([], tf.int64),
-        'max': tf.FixedLenFeature([], tf.int64)})
-
-    label = tf.cast(features['label'], tf.int32)
+        'max': tf.FixedLenFeature([], tf.int64),
+        'pair': tf.FixedLenFeature([], tf.string)})
 
     graph_1 = features['cfg_1']
     #adj_arr = np.reshape((adj_str.split(',')),(-1,D))
@@ -165,13 +162,14 @@ def read_and_decode(filename):
     #feature_2 = fea_arr.astype(np.float32)
 
     max_num = tf.cast(features['max'], tf.int32)
+    pair_list = features['pair']#获得名字列表
 
-    return label, graph_1, graph_2, feature_1, feature_2, num1, num2, max_num
+    return graph_1, graph_2, feature_1, feature_2, num1, num2, max_num, pair_list
 
 
-def get_batch( label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num):
-
+def get_batch(pair, label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num):
     y = np.reshape(label, [B, 1])
+    x = np.reshape(pair, [B, 1])
 
     v_num_1 = []
     v_num_2 = []
@@ -209,7 +207,7 @@ def get_batch( label, graph_str1, graph_str2, feature_str1, feature_str2, num1, 
         feature_vec2 = np.resize(feature_ori,(np.max(v_num_2),D))
         feature_2.append(feature_vec2)
 
-    return y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2
+    return x, y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2
 
 # 4.construct the network
 # Initializing the variables
@@ -244,15 +242,16 @@ loss = contrastive_loss(labels, dis)
 
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
-list_test_label, list_test_adj_matrix_1, list_test_adj_matrix_2, \
-list_test_feature_map_1, list_test_feature_map_2, list_test_num1, list_test_num2, list_test_max \
+list_test_adj_matrix_1, list_test_adj_matrix_2, \
+    list_test_feature_map_1, list_test_feature_map_2, list_test_num1, list_test_num2, list_test_max, list_test_pair\
     = read_and_decode(TEST_TFRECORD)
-batch_test_label, batch_test_adj_matrix_1, batch_test_adj_matrix_2, \
-batch_test_feature_map_1, batch_test_feature_map_2, batch_test_num1, \
-batch_test_num2, batch_test_max  = tf.train.batch([
-    list_test_label, list_test_adj_matrix_1, list_test_adj_matrix_2,
-    list_test_feature_map_1, list_test_feature_map_2,
-    list_test_num1, list_test_num2, list_test_max],batch_size=B, capacity=100)
+
+batch_test_adj_matrix_1, batch_test_adj_matrix_2, \
+    batch_test_feature_map_1, batch_test_feature_map_2, batch_test_num1, \
+    batch_test_num2, batch_test_max, batch_test_pair = tf.train.batch([
+        list_test_adj_matrix_1, list_test_adj_matrix_2,
+        list_test_feature_map_1, list_test_feature_map_2,
+        list_test_num1, list_test_num2, list_test_max, list_test_pair], batch_size=B, capacity=100)
 
 init_opt = tf.global_variables_initializer()
 saver = tf.train.Saver()
@@ -269,24 +268,36 @@ with tf.Session() as sess:
     start_time = time.time()
     # Loop over all batches
     # get batch params label, graph_str1, graph_str2, feature_str1, feature_str2, num1, num2, max_num
+    index = 0
+    all_predict = []
+    res = open('res.csv', 'w+')
     for m in range(total_batch):
-        test_label, test_adj_matrix_1, test_adj_matrix_2, \
-        test_feature_map_1, test_feature_map_2, test_num1, test_num2, test_max = sess.run(
-            [batch_test_label, batch_test_adj_matrix_1, batch_test_adj_matrix_2, batch_test_feature_map_1,
-             batch_test_feature_map_2, batch_test_num1, batch_test_num2, batch_test_max])
-        y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2 \
-            = get_batch(test_label, test_adj_matrix_1,test_adj_matrix_2,
-                        test_feature_map_1,test_feature_map_2, test_num1,test_num2, test_max)
+        test_adj_matrix_1, test_adj_matrix_2, \
+            test_feature_map_1, test_feature_map_2, test_num1, test_num2, test_max, test_pair = sess.run(
+                [batch_test_adj_matrix_1, batch_test_adj_matrix_2, batch_test_feature_map_1,
+                 batch_test_feature_map_2, batch_test_num1, batch_test_num2, batch_test_max, batch_test_pair])
+        x, y, graph_1, graph_2, feature_1, feature_2, v_num_1, v_num_2 \
+            = get_batch(test_pair, np.ones(B), test_adj_matrix_1, test_adj_matrix_2,
+                        test_feature_map_1, test_feature_map_2, test_num1, test_num2, test_max)
         predict = dis.eval(
             feed_dict={graph_left: graph_1, feature_left: feature_1, v_num_left: v_num_1, graph_right: graph_2,
                        feature_right: feature_2, v_num_right: v_num_2, labels: y, dropout_f: 1.0})
-        tr_acc = compute_accuracy(predict, y)
+        tr_acc = compute_accuracy(res, predict, x, y)
         avg_loss += loss.eval(feed_dict={labels: y, dis: predict})
         avg_acc += tr_acc * 100
-        total_labels.append(y)
+        total_labels.append(1)
         total_predicts.append(predict)
         if is_debug:
-            print '     %d    tr_acc %0.2f' % (m, tr_acc)
+            print '%d    tr_acc %0.2f' % (m, tr_acc)
+        for item in predict:
+            all_predict.append(item)
+
+    new_predict = []
+    for it in all_predict:
+        new_predict.append(it[0])
+    new_predict.sort()
+    for i in range(10):
+        print all_predict.index(new_predict[i])
     duration = time.time() - start_time
     total_labels = np.reshape(total_labels, (-1))
     total_predicts = np.reshape(total_predicts, (-1))

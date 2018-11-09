@@ -18,5 +18,5 @@ for tfrecord in filters:
     search_program = tfrecord.split(os.sep)[-1][:-9].split("__NUM__")[0]
     search_num = tfrecord.split(os.sep)[-1][:-9].split("__NUM__")[1].split("#")[0]
     cve_num = tfrecord.split(os.sep)[-1][:-9].split("__NUM__")[1].split("#")[1]
-    os.system("./search_by_vulseeker "+tfrecord+" "+cve_dir+" "+cve_num+" "+search_num+" "+search_program)
+    os.system("./VulSeeker/search_by_vulseeker "+tfrecord+" "+cve_dir+" "+cve_num+" "+search_num+" "+search_program)
 print "finish!!!"

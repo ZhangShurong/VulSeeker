@@ -198,13 +198,16 @@ for cur_cve in cve_list.keys():
                     label_list.append(function_name+"###"+bin_path)
             search_cfg_1, search_cfg_2, search_dfg_1, search_dfg_2, search_fea_1, search_fea_2, search_num1, search_num2, search_max \
                 = construct_learning_dataset(search_pair_list)
+            str_pair = []
+            for pair in search_pair_list:
+                str_pair.append(pair[0] + ',' + pair[1])
             node_list = np.linspace(search_max,search_max, len(search_pair_list),dtype=int)
             cur_path = config.SEARCH_VULSEEKER_TFRECORD_DIR + os.sep + cur_cve
             tf_file_name = version+"__NUM__"+str(len(search_pair_list))+ "#" +  str(len(cve_list.get(cur_cve)))
             writer = tf.python_io.TFRecordWriter(cur_path + os.sep + tf_file_name +".tfrecord")
-            for item1,item2,item3,item4,item5,item6, item7,item8, item9, item10 in itertools.izip(
+            for item1,item2,item3,item4,item5,item6, item7,item8, item9, item10, item11 in itertools.izip(
                     search_cfg_1, search_cfg_2, search_dfg_1, search_dfg_2, search_fea_1, search_fea_2,
-                    search_num1, search_num2, node_list, label_list):
+                    search_num1, search_num2, node_list, label_list, str_pair):
                 example = tf.train.Example(
                     features = tf.train.Features(
                         feature = {
@@ -214,10 +217,11 @@ for cur_cve in cve_list.keys():
                             'dfg_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item4])),
                             'fea_1': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item5])),
                             'fea_2': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item6])),
-                            'num1':tf.train.Feature(int64_list = tf.train.Int64List(value=[item7])),
-                            'num2':tf.train.Feature(int64_list = tf.train.Int64List(value=[item8])),
+                            'num1': tf.train.Feature(int64_list = tf.train.Int64List(value=[item7])),
+                            'num2': tf.train.Feature(int64_list = tf.train.Int64List(value=[item8])),
                             'max': tf.train.Feature(int64_list=tf.train.Int64List(value=[item9])),
-                            'label': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item10]))}))
+                            'pair': tf.train.Feature(bytes_list=tf.train.BytesList(value=[item11])),
+                        }))
                 serialized = example.SerializeToString()
                 writer.write(serialized)
             writer.close()
