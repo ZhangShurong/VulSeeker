@@ -2,3 +2,14 @@
 *.pyc
 *.so
 *.a
+*.zip
+VulSeeker/1_Features/search_program/libTheAmazingAudioEngine
+VulSeeker/2_Dataset
+VulSeeker/7_Search_Result/VulSeeker/CVE-2015-1791/.~lock.tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini.csv#
+*.tfrecord
+VulSeeker/7_Search_Result/VulSeeker/CVE-2015-1791/.~lock.tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini.csv#
+VulSeeker/6_Search_TFRecord/VulSeeker/CVE-2014-3508/tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini__NUM__27840#48.tfrecord
+VulSeeker/4_Model/Gemini
+VulSeeker/6_Search_TFRecord/VulSeeker/CVE-2014-3508/tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini__NUM__27840#48.tfrecord
+VulSeeker/logs
+VulSeeker/6_Search_TFRecord/VulSeeker/CVE-2014-3508/tomato-Cisco-M10v2-NVRAM32K-1.28.RT-N5x-MIPSR2-110-PL-Mini__NUM__27840#48.tfrecord
